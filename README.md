@@ -34,7 +34,6 @@ This approach is ideal for:
 - **Kotlin** - Primary programming language
 - **CameraX** - Camera functionality and frame capture
 - **Android Architecture Components** - MVVM pattern and lifecycle management
-- **OpenCV** or similar - Motion detection algorithm
 - **FFmpeg** or MediaCodec - Video stitching and encoding
 
 ## Installation
