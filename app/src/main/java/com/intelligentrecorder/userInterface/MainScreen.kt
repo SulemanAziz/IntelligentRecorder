@@ -3,7 +3,7 @@ package com.intelligentrecorder.userInterface
 import android.view.ViewGroup
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.Preview
+import androidx.camera.core.Preview as CameraPreview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
@@ -146,7 +146,7 @@ fun CameraPreview(viewModel: RecorderViewModel) {
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().also {
+                    val preview = CameraPreview.Builder().build().also {
                         it.surfaceProvider = previewView.surfaceProvider
                     }
                     val imageAnalysis = ImageAnalysis.Builder()
