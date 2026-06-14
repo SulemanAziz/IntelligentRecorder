@@ -1,5 +1,11 @@
 package com.intelligentrecorder.userInterface
 
+import android.view.ViewGroup
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview as CameraPreview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,28 +20,39 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.intelligentrecorder.MotionDetection.MotionDetector
+import com.intelligentrecorder.RecorderViewModel
+import java.util.concurrent.Executors
 
 @Composable
-fun StopRecordingButton(){
+fun StopRecordingButton(onClick: () -> Unit){
     Button(
-        onClick = {},
+        onClick = onClick,
         modifier = Modifier
             .padding(vertical = 30.dp)
             .size(65.dp),
@@ -48,16 +65,16 @@ fun StopRecordingButton(){
     }
 }
 @Composable
-fun RecordButton(){
+fun RecordButton(onClick: () -> Unit){
     IconButton(
-        onClick = {},
+        onClick = onClick,
         modifier = Modifier
             .padding(vertical = 30.dp)
             .size(75.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(100.dp) // The actual red circle size
+                .size(100.dp)
                 .clip(CircleShape)
                 .background(Color.Red)
         )
@@ -65,9 +82,9 @@ fun RecordButton(){
 }
 
 @Composable
-fun SettingsMenu(){
+fun SettingsMenu(onClick: () -> Unit){
     IconButton(
-        onClick = {},
+        onClick = onClick,
         modifier = Modifier
             .size(70.dp)
     ) {
@@ -82,17 +99,16 @@ fun SettingsMenu(){
 }
 
 @Composable
-fun DeleteVideoBufferButton(){
+fun DeleteVideoBufferButton(onClick: () -> Unit){
     IconButton(
-        //Flush the video buffer and start over.
-        onClick = {},
+        onClick = onClick,
         modifier = Modifier
             .size(70.dp)
     ) {
         Icon(
             imageVector = Icons.Default.Delete,
             tint = Color.Red,
-            contentDescription = "Adjust Motion Detection Settings",
+            contentDescription = "Flush video buffer",
             modifier = Modifier
                 .size(70.dp)
         )
@@ -100,17 +116,16 @@ fun DeleteVideoBufferButton(){
 }
 
 @Composable
-fun SaveButton(){
+fun SaveButton(onClick: () -> Unit){
     IconButton(
-        //Write to Video Output here from videoBuffer
-        onClick = {},
+        onClick = onClick,
         modifier = Modifier
             .size(70.dp)
     ) {
         Icon(
             imageVector = Icons.Default.Save,
             tint = Color.Green,
-            contentDescription = "Adjust Motion Detection Settings",
+            contentDescription = "Save recording",
             modifier = Modifier
                 .size(70.dp)
         )
@@ -118,75 +133,122 @@ fun SaveButton(){
 }
 
 @Composable
-fun MainScreen(isRecording: Boolean, motion: Boolean){
+fun CameraPreview(viewModel: RecorderViewModel) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
-    Row(
-        horizontalArrangement = Arrangement.Start,
-        verticalAlignment = Alignment.Top,
-        modifier = Modifier.fillMaxWidth().padding(top = 20.dp)
-    ) {
-        if(motion){
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = "Motion State",
-                modifier = Modifier.size(80.dp),
-                tint = Color.Yellow
-            )
-        }
-        else{
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = "Motion State",
-                modifier = Modifier.size(80.dp),
-                tint = Color.DarkGray
-            )
-        }
-    }
+    AndroidView(
+        factory = { ctx ->
+            PreviewView(ctx).also { previewView ->
+                previewView.layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Bottom,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        if(isRecording){
-            StopRecordingButton()
-        }
-        else{
-            RecordButton()
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Bottom,
-        horizontalAlignment = Alignment.End
-    ) {
-        SaveButton()
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Bottom,
-        horizontalAlignment = Alignment.Start
-    ) {
-        SettingsMenu()
-        Spacer(Modifier.padding(vertical = 15.dp))
-        DeleteVideoBufferButton()
-    }
-
-
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
+                    val preview = CameraPreview.Builder().build().also {
+                        it.surfaceProvider = previewView.surfaceProvider
+                    }
+                    val imageAnalysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                    val executor = Executors.newSingleThreadExecutor()
+                    imageAnalysis.setAnalyzer(executor, MotionDetector(viewModel))
+                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            imageAnalysis
+                        )
+                    } catch (_: Exception) {}
+                }, ContextCompat.getMainExecutor(ctx))
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
-//Variables here will come from the ViewModel later
-var isRecording:Boolean = false
-var motion:Boolean = false
-
-@Preview(showBackground = true)
 @Composable
-fun ScreenPreview(){
-    MainScreen(isRecording, motion)
+fun MainScreen(viewModel: RecorderViewModel){
+    val context = LocalContext.current
+    val isRecording by viewModel.isRecording.collectAsState()
+    val isMoving by viewModel.isMoving.collectAsState()
+    val threshold by viewModel.threshold.collectAsState()
+    var showSettings by remember { mutableStateOf(false) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        CameraPreview(viewModel = viewModel)
+
+        Row(
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier.fillMaxWidth().padding(top = 20.dp)
+        ) {
+            if(isMoving){
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Motion Detected",
+                    modifier = Modifier.size(80.dp),
+                    tint = Color.Yellow
+                )
+            }
+            else{
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "No Motion",
+                    modifier = Modifier.size(80.dp),
+                    tint = Color.DarkGray
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Bottom,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if(isRecording){
+                StopRecordingButton(onClick = { viewModel.stopRecording() })
+            }
+            else{
+                RecordButton(onClick = { viewModel.startRecording() })
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            verticalArrangement = Arrangement.Bottom,
+            horizontalAlignment = Alignment.End
+        ) {
+            /* if(viewModel.videobufferfilled()) { */
+                SaveButton(onClick = { viewModel.saveToDownloads(context) })
+            //} Keep this condition commented out for now
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            verticalArrangement = Arrangement.Bottom,
+            horizontalAlignment = Alignment.Start
+        ) {
+            SettingsMenu(onClick = { showSettings = true })
+            Spacer(Modifier.padding(vertical = 15.dp))
+            DeleteVideoBufferButton(onClick = { viewModel.clearBuffer() })
+        }
+    }
+
+    if (showSettings) {
+        SettingsModal(
+            currentThreshold = threshold,
+            onThresholdChange = { viewModel.setThreshold(it) },
+            onDismiss = { showSettings = false }
+        )
+    }
 }
