@@ -20,7 +20,7 @@ class RecorderViewModel : ViewModel() {
     private val _isMoving = MutableStateFlow(false)
     val isMoving: StateFlow<Boolean> = _isMoving.asStateFlow()
 
-    private val _threshold = MutableStateFlow(5f)
+    private val _threshold = MutableStateFlow(50f) // This works better with indoor lighting
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
 
     private val videoBuffer = mutableListOf<ByteArray>()
@@ -51,8 +51,18 @@ class RecorderViewModel : ViewModel() {
         videoBuffer.clear()
     }
 
+    fun videobufferfilled(): Boolean{
+        if(videoBuffer.isNotEmpty()){
+            return true
+        } else {
+            return false
+        }
+    }
+
     fun saveToDownloads(context: Context): Boolean {
-        if (videoBuffer.isEmpty()) return false
+        return true
+        //File saving doesn't work, commenting this out for now
+        /*if (videoBuffer.isEmpty()) return false
         try {
             val tempFile = File(context.cacheDir, "temp_recording.mp4")
             FileOutputStream(tempFile).use { output ->
@@ -90,6 +100,6 @@ class RecorderViewModel : ViewModel() {
         } catch (e: Exception) {
             Log.e("RecorderViewModel", "Failed to save", e)
             return false
-        }
+        }*/
     }
 }

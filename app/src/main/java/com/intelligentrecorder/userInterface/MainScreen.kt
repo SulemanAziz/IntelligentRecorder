@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.intelligentrecorder.MotionDetection.MotionDetector
 import com.intelligentrecorder.RecorderViewModel
 import java.util.concurrent.Executors
@@ -133,8 +134,7 @@ fun SaveButton(onClick: () -> Unit){
 
 @Composable
 fun CameraPreview(viewModel: RecorderViewModel) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
 
     AndroidView(
         factory = { ctx ->
@@ -143,6 +143,7 @@ fun CameraPreview(viewModel: RecorderViewModel) {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
+
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
@@ -225,7 +226,9 @@ fun MainScreen(viewModel: RecorderViewModel){
             verticalArrangement = Arrangement.Bottom,
             horizontalAlignment = Alignment.End
         ) {
-            SaveButton(onClick = { viewModel.saveToDownloads(context) })
+            /* if(viewModel.videobufferfilled()) { */
+                SaveButton(onClick = { viewModel.saveToDownloads(context) })
+            //} Keep this condition commented out for now
         }
 
         Column(
@@ -248,10 +251,4 @@ fun MainScreen(viewModel: RecorderViewModel){
             onDismiss = { showSettings = false }
         )
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun ScreenPreview(){
-    // Preview disabled - requires ViewModel and camera
 }

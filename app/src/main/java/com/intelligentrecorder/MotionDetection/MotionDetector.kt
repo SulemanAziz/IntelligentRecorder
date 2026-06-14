@@ -29,11 +29,16 @@ class MotionDetector(private val viewModel: RecorderViewModel) : ImageAnalysis.A
                     changedPixels++
                 }
             }
+
+            // Determining Motion Here
+            ////////////////////////////////////////////////////////////////////////////////////////
+
             val percentChanged = (changedPixels.toFloat() / totalPixels) * 100f
             val threshold = viewModel.threshold.value
             val isMoving = percentChanged > threshold
             viewModel.updateMotion(isMoving)
 
+            ////////////////////////////////////////////////////////////////////////////////////////
             if (isMoving) {
                 val frameData = imageProxyToByteArray(imageProxy)
                 if (frameData != null) {
