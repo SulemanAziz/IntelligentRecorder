@@ -23,7 +23,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -185,10 +189,22 @@ fun MainScreen(viewModel: RecorderViewModel){
     val isRecording by viewModel.isRecording.collectAsState()
     val isMoving by viewModel.isMoving.collectAsState()
     val threshold by viewModel.threshold.collectAsState()
+    val savedVideoUri by viewModel.savedVideoUri.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        CameraPreview(viewModel = viewModel)
+    LaunchedEffect(savedVideoUri) {
+        savedVideoUri?.let {
+            snackbarHostState.showSnackbar("Video saved to $it")
+            viewModel.clearSavedUri()
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            CameraPreview(viewModel = viewModel)
 
         Row(
             horizontalArrangement = Arrangement.Start,
@@ -242,7 +258,7 @@ fun MainScreen(viewModel: RecorderViewModel){
                  SaveButton(onClick = {
                      viewModel.saveVideo(context)
                  })
-             }
+            }
         }
 
         Column(
@@ -270,4 +286,5 @@ fun MainScreen(viewModel: RecorderViewModel){
             onDismiss = { showSettings = false }
         )
     }
+}
 }

@@ -39,6 +39,13 @@ class RecorderViewModel : ViewModel() {
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
     private val videoBuffer = mutableListOf<Bitmap>()
     val bufferfilled = MutableStateFlow(false)
+
+    private val _savedVideoUri = MutableStateFlow<String?>(null)
+    val savedVideoUri: StateFlow<String?> = _savedVideoUri.asStateFlow()
+
+    fun clearSavedUri() {
+        _savedVideoUri.value = null
+    }
     fun startRecording(context: Context) {
         _isRecording.value = true
     }
@@ -149,7 +156,7 @@ class RecorderViewModel : ViewModel() {
 
     fun saveVideo(context: Context): Boolean {
         try {
-            CoroutineScope(Dispatchers.IO).launch{
+            CoroutineScope(Dispatchers.IO).launch {
                 val fileName = "IntelligentRecorder_${System.currentTimeMillis()}.mp4"
                 val tempFile = File(context.filesDir, fileName)
 
@@ -169,11 +176,9 @@ class RecorderViewModel : ViewModel() {
                 }
 
                 tempFile.delete()
-                clearBuffer() // No longer needed, we can now reset the UI once the video is saved.
+                clearBuffer()
+                _savedVideoUri.value = uri.toString()
 
-                withContext(Dispatchers.Main){
-                    Toast.makeText( context,"Video Saved Successfully!", Toast.LENGTH_SHORT).show()
-                }
             }
             return true
         } catch (e: Exception) {
