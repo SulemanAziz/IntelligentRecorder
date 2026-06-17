@@ -1,6 +1,10 @@
 package com.intelligentrecorder.userInterface
 
+import android.media.AudioManager
+import android.media.MediaActionSound
+import android.media.ToneGenerator
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview as CameraPreview
@@ -172,9 +176,12 @@ fun CameraPreview(viewModel: RecorderViewModel) {
     )
 }
 
+
+
 @Composable
 fun MainScreen(viewModel: RecorderViewModel){
     val context = LocalContext.current
+    val sound = remember { MediaActionSound() }
     val isRecording by viewModel.isRecording.collectAsState()
     val isMoving by viewModel.isMoving.collectAsState()
     val threshold by viewModel.threshold.collectAsState()
@@ -212,10 +219,15 @@ fun MainScreen(viewModel: RecorderViewModel){
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if(isRecording){
-                StopRecordingButton(onClick = { viewModel.stopRecording() })
+                StopRecordingButton(onClick = {
+                    sound.play(MediaActionSound.STOP_VIDEO_RECORDING)
+                    viewModel.stopRecording(context) })
             }
             else{
-                RecordButton(onClick = { viewModel.startRecording() })
+                RecordButton(onClick = {
+                    sound.play(MediaActionSound.START_VIDEO_RECORDING);
+                    viewModel.startRecording(context)}
+                )
             }
         }
 
@@ -226,9 +238,11 @@ fun MainScreen(viewModel: RecorderViewModel){
             verticalArrangement = Arrangement.Bottom,
             horizontalAlignment = Alignment.End
         ) {
-            /* if(viewModel.videobufferfilled()) { */
-                SaveButton(onClick = { viewModel.saveToDownloads(context) })
-            //} Keep this condition commented out for now
+             if(viewModel.bufferfilled.collectAsState().value == true && viewModel.isRecording.collectAsState().value == false) {
+                 SaveButton(onClick = {
+                     viewModel.saveVideo(context)
+                 })
+             }
         }
 
         Column(
@@ -239,8 +253,13 @@ fun MainScreen(viewModel: RecorderViewModel){
             horizontalAlignment = Alignment.Start
         ) {
             SettingsMenu(onClick = { showSettings = true })
-            Spacer(Modifier.padding(vertical = 15.dp))
-            DeleteVideoBufferButton(onClick = { viewModel.clearBuffer() })
+            if(viewModel.isRecording.collectAsState().value == false && viewModel.bufferfilled.collectAsState().value == true) {
+                Spacer(Modifier.padding(vertical = 15.dp))
+                DeleteVideoBufferButton(onClick = {
+                    viewModel.clearBuffer()
+                    Toast.makeText(context, "Video Buffer Deleted!", Toast.LENGTH_SHORT).show()
+                })
+            }
         }
     }
 
