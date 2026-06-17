@@ -1,7 +1,12 @@
 package com.intelligentrecorder.MotionDetection
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import androidx.annotation.OptIn
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.compose.runtime.collectAsState
 import com.intelligentrecorder.RecorderViewModel
 import java.nio.ByteBuffer
 
@@ -11,6 +16,7 @@ class MotionDetector(private val viewModel: RecorderViewModel) : ImageAnalysis.A
     private var previousWidth: Int = 0
     private var previousHeight: Int = 0
 
+    @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
         val yBuffer = imageProxy.planes[0].buffer
         val yRowStride = imageProxy.planes[0].rowStride
@@ -39,11 +45,22 @@ class MotionDetector(private val viewModel: RecorderViewModel) : ImageAnalysis.A
             viewModel.updateMotion(isMoving)
 
             ////////////////////////////////////////////////////////////////////////////////////////
-            if (isMoving) {
-                val frameData = imageProxyToByteArray(imageProxy)
-                if (frameData != null) {
-                    viewModel.addFrameToBuffer(frameData)
+            if (isMoving && viewModel.isRecording.value == true) { // only add to buffer when recording and movement is going on,
+                                                                  // otherwise just update the icon.
+                val rawimage: Bitmap = imageProxy.toBitmap();
+                val matrix = Matrix().apply{
+                    postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
                 }
+
+                val image = Bitmap.createBitmap(
+                    rawimage, 0, 0,
+                    rawimage.width, rawimage.height,
+                    matrix, true
+                )
+
+                // Need to do all the above to fix rotated video.
+
+                viewModel.addFrameToBuffer(image)
             }
         }
 
@@ -70,37 +87,5 @@ class MotionDetector(private val viewModel: RecorderViewModel) : ImageAnalysis.A
             }
         }
         return data
-    }
-
-    private fun imageProxyToByteArray(imageProxy: ImageProxy): ByteArray? {
-        return try {
-            val yBuffer = imageProxy.planes[0].buffer
-            val uvBuffer = imageProxy.planes[1].buffer
-            val vBuffer = if (imageProxy.planes.size > 2) {
-                imageProxy.planes[2].buffer
-            } else {
-                null
-            }
-
-            val ySize = yBuffer.remaining()
-            val uvSize = uvBuffer.remaining()
-            val vSize = vBuffer?.remaining() ?: 0
-            val totalSize = ySize + uvSize + vSize + 8
-
-            val result = ByteBuffer.allocate(totalSize)
-            result.putInt(imageProxy.width)
-            result.putInt(imageProxy.height)
-            yBuffer.rewind()
-            uvBuffer.rewind()
-            vBuffer?.rewind()
-
-            result.put(yBuffer)
-            result.put(uvBuffer)
-            vBuffer?.let { result.put(it) }
-
-            result.array()
-        } catch (e: Exception) {
-            null
-        }
     }
 }
