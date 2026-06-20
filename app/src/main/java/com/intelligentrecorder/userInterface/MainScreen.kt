@@ -43,14 +43,16 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import com.intelligentrecorder.DetectionMode
+import com.intelligentrecorder.MirrorViewModel
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.intelligentrecorder.MotionDetection.MotionDetector
@@ -85,6 +87,23 @@ fun RecordButton(onClick: () -> Unit){
                 .size(100.dp)
                 .clip(CircleShape)
                 .background(Color.Red)
+        )
+    }
+}
+
+@Composable
+fun MirrorButton(onClick: () -> Unit){
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(50.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.VideoSettings,
+            tint = Color.White,
+            contentDescription = "Configure Mirror Detection",
+            modifier = Modifier
+                .size(40.dp)
         )
     }
 }
@@ -182,16 +201,97 @@ fun CameraPreview(viewModel: RecorderViewModel) {
 
 
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: RecorderViewModel){
+fun ModeDropdownMenu(
+    selectedMode: DetectionMode,
+    onModeSelected: (DetectionMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val modes = listOf(
+        DetectionMode.FOREGROUND,
+        DetectionMode.MIRROR,
+        DetectionMode.HYBRID
+    )
+    var expanded by remember { mutableStateOf(false) }
+    
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = when(selectedMode) {
+                DetectionMode.FOREGROUND -> "Foreground"
+                DetectionMode.MIRROR -> "Mirror"
+                DetectionMode.HYBRID -> "Hybrid"
+            },
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedTextColor = Color.White,
+                focusedTextColor = Color.White
+            ),
+            modifier = Modifier.menuAnchor()
+        )
+        
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            modes.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(
+                        when(mode) {
+                            DetectionMode.FOREGROUND -> "Foreground"
+                            DetectionMode.MIRROR -> "Mirror"
+                            DetectionMode.HYBRID -> "Hybrid"
+                        }
+                    )},
+                    onClick = {
+                        onModeSelected(mode)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MainScreen(
+    viewModel: RecorderViewModel,
+    mirrorViewModel: MirrorViewModel? = null,
+    onNavigateToMirror: () -> Unit = {},
+    onModeChange: ((DetectionMode) -> Unit)? = null
+){
     val context = LocalContext.current
     val sound = remember { MediaActionSound() }
     val isRecording by viewModel.isRecording.collectAsState()
     val isMoving by viewModel.isMoving.collectAsState()
-    val threshold by viewModel.threshold.collectAsState()
     val savedVideoUri by viewModel.savedVideoUri.collectAsState()
+    val selectedMode by (mirrorViewModel?.selectedMode?.collectAsState() ?: remember { mutableStateOf(DetectionMode.FOREGROUND) })
+    val mirrorPoints by (mirrorViewModel?.mirrorPoints?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     var showSettings by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    
+    // Get the appropriate threshold based on mode
+    val currentThreshold = when (selectedMode) {
+        DetectionMode.FOREGROUND -> mirrorViewModel?.foregroundThreshold?.collectAsState()?.value ?: viewModel.threshold.collectAsState().value
+        DetectionMode.MIRROR -> mirrorViewModel?.mirrorThreshold?.collectAsState()?.value ?: 65f
+        DetectionMode.HYBRID -> mirrorViewModel?.hybridForegroundThreshold?.collectAsState()?.value ?: 65f
+    }
+    
+    // Sync RecorderViewModel with mode-specific settings
+    LaunchedEffect(selectedMode, currentThreshold, mirrorPoints) {
+        viewModel.setMode(selectedMode)
+        viewModel.setThreshold(currentThreshold)
+        viewModel.setMirrorPoints(mirrorPoints)
+    }
 
     LaunchedEffect(savedVideoUri) {
         savedVideoUri?.let {
@@ -206,26 +306,53 @@ fun MainScreen(viewModel: RecorderViewModel){
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             CameraPreview(viewModel = viewModel)
 
-        Row(
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.Top,
-            modifier = Modifier.fillMaxWidth().padding(top = 20.dp)
+        Column(
+            modifier = Modifier.fillMaxWidth()
         ) {
-            if(isMoving){
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = "Motion Detected",
-                    modifier = Modifier.size(80.dp),
-                    tint = Color.Yellow
-                )
-            }
-            else{
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = "No Motion",
-                    modifier = Modifier.size(80.dp),
-                    tint = Color.DarkGray
-                )
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = 20.dp, start = 10.dp, end = 10.dp)
+            ) {
+                // Motion indicator on the left
+                if(isMoving){
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Motion Detected",
+                        modifier = Modifier.size(50.dp),
+                        tint = Color.Yellow
+                    )
+                }
+                else{
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "No Motion",
+                        modifier = Modifier.size(50.dp),
+                        tint = Color.DarkGray
+                    )
+                }
+                
+                // Mode dropdown in the middle
+                if (onModeChange != null && mirrorViewModel != null) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                    ) {
+                        ModeDropdownMenu(
+                            selectedMode = selectedMode,
+                            onModeSelected = onModeChange
+                        )
+                    }
+                }
+                
+                // Mirror button on the right (only in Mirror and Hybrid modes)
+                if (selectedMode == DetectionMode.MIRROR || selectedMode == DetectionMode.HYBRID) {
+                    MirrorButton(onClick = onNavigateToMirror)
+                } else {
+                    // Empty spacer to maintain layout when button is hidden
+                    Spacer(modifier = Modifier.size(50.dp))
+                }
             }
         }
 
@@ -280,11 +407,40 @@ fun MainScreen(viewModel: RecorderViewModel){
     }
 
     if (showSettings) {
-        SettingsModal(
-            currentThreshold = threshold,
-            onThresholdChange = { viewModel.setThreshold(it) },
-            onDismiss = { showSettings = false }
-        )
+        when (selectedMode) {
+            DetectionMode.FOREGROUND -> {
+                SettingsModal(
+                    currentThreshold = mirrorViewModel?.foregroundThreshold?.collectAsState()?.value ?: currentThreshold,
+                    onThresholdChange = { 
+                        mirrorViewModel?.setForegroundThreshold(it)
+                        viewModel.setThreshold(it)
+                    },
+                    onDismiss = { showSettings = false }
+                )
+            }
+            DetectionMode.MIRROR -> {
+                MirrorSettingsModal(
+                    currentThreshold = mirrorViewModel?.mirrorThreshold?.collectAsState()?.value ?: currentThreshold,
+                    onThresholdChange = { 
+                        mirrorViewModel?.setMirrorThreshold(it)
+                        viewModel.setThreshold(it)
+                    },
+                    onDismiss = { showSettings = false }
+                )
+            }
+            DetectionMode.HYBRID -> {
+                HybridSettingsModal(
+                    currentMirrorThreshold = mirrorViewModel?.hybridMirrorThreshold?.collectAsState()?.value ?: 65f,
+                    currentForegroundThreshold = mirrorViewModel?.hybridForegroundThreshold?.collectAsState()?.value ?: 65f,
+                    onMirrorThresholdChange = { mirrorViewModel?.setHybridMirrorThreshold(it) },
+                    onForegroundThresholdChange = { 
+                        mirrorViewModel?.setHybridForegroundThreshold(it)
+                        viewModel.setThreshold(it)
+                    },
+                    onDismiss = { showSettings = false }
+                )
+            }
+        }
     }
 }
 }

@@ -35,8 +35,15 @@ class RecorderViewModel : ViewModel() {
     private val _isMoving = MutableStateFlow(false)
     val isMoving: StateFlow<Boolean> = _isMoving.asStateFlow()
 
-    private val _threshold = MutableStateFlow(65f) // This works better with indoor lighting
+    private val _threshold = MutableStateFlow(65f)
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
+    
+    private val _currentMode = MutableStateFlow(DetectionMode.FOREGROUND)
+    val currentMode: StateFlow<DetectionMode> = _currentMode.asStateFlow()
+    
+    private val _mirrorPoints = MutableStateFlow<List<MirrorPoint>>(emptyList())
+    val mirrorPoints: StateFlow<List<MirrorPoint>> = _mirrorPoints.asStateFlow()
+    
     private val videoBuffer = mutableListOf<Bitmap>()
     val bufferfilled = MutableStateFlow(false)
 
@@ -46,6 +53,15 @@ class RecorderViewModel : ViewModel() {
     fun clearSavedUri() {
         _savedVideoUri.value = null
     }
+    
+    fun setMode(mode: DetectionMode) {
+        _currentMode.value = mode
+    }
+    
+    fun setMirrorPoints(points: List<MirrorPoint>) {
+        _mirrorPoints.value = points
+    }
+    
     fun startRecording(context: Context) {
         _isRecording.value = true
     }
