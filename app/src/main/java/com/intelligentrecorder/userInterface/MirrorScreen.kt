@@ -23,7 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -106,13 +108,22 @@ fun MirrorCameraPreview(
             modifier = Modifier.fillMaxSize()
         )
         
+        var canvasSize by remember { mutableStateOf(IntSize(0, 0)) }
+        
         // Overlay canvas for dots and lines
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
+                .onSizeChanged { canvasSize = it }
                 .pointerInteropFilter { event ->
                     if (event.action == MotionEvent.ACTION_DOWN && points.size < 4) {
-                        onPointAdded(event.x, event.y)
+                        if (canvasSize.width > 0 && canvasSize.height > 0) {
+                            // Store as normalized 0..1 coordinates for camera-space mapping
+                            onPointAdded(
+                                event.x / canvasSize.width.toFloat(),
+                                event.y / canvasSize.height.toFloat()
+                            )
+                        }
                         true
                     } else {
                         false
@@ -125,8 +136,8 @@ fun MirrorCameraPreview(
                 for (i in 0 until points.size - 1) {
                     drawLine(
                         color = Color.Green,
-                        start = Offset(points[i].x, points[i].y),
-                        end = Offset(points[i + 1].x, points[i + 1].y),
+                        start = Offset(points[i].x * size.width, points[i].y * size.height),
+                        end = Offset(points[i + 1].x * size.width, points[i + 1].y * size.height),
                         strokeWidth = 4f
                     )
                 }
@@ -137,22 +148,22 @@ fun MirrorCameraPreview(
                 // Close the rectangle by connecting point 4 back to point 1
                 drawLine(
                     color = Color.Green,
-                    start = Offset(points[3].x, points[3].y),
-                    end = Offset(points[0].x, points[0].y),
+                    start = Offset(points[3].x * size.width, points[3].y * size.height),
+                    end = Offset(points[0].x * size.width, points[0].y * size.height),
                     strokeWidth = 4f
                 )
                 
-                // Fill the rectangle with semi-transparent overlay
+                // Draw diagonals for visual feedback
                 drawLine(
                     color = Color.Green.copy(alpha = 0.3f),
-                    start = Offset(points[0].x, points[0].y),
-                    end = Offset(points[2].x, points[2].y),
+                    start = Offset(points[0].x * size.width, points[0].y * size.height),
+                    end = Offset(points[2].x * size.width, points[2].y * size.height),
                     strokeWidth = 2f
                 )
                 drawLine(
                     color = Color.Green.copy(alpha = 0.3f),
-                    start = Offset(points[1].x, points[1].y),
-                    end = Offset(points[3].x, points[3].y),
+                    start = Offset(points[1].x * size.width, points[1].y * size.height),
+                    end = Offset(points[3].x * size.width, points[3].y * size.height),
                     strokeWidth = 2f
                 )
             }
@@ -163,19 +174,19 @@ fun MirrorCameraPreview(
                 drawCircle(
                     color = Color.Red,
                     radius = 20f,
-                    center = Offset(point.x, point.y)
+                    center = Offset(point.x * size.width, point.y * size.height)
                 )
                 // Inner white circle
                 drawCircle(
                     color = Color.White,
                     radius = 15f,
-                    center = Offset(point.x, point.y)
+                    center = Offset(point.x * size.width, point.y * size.height)
                 )
                 // Number indicator (using smaller circle for now)
                 drawCircle(
                     color = Color.Blue,
                     radius = 8f,
-                    center = Offset(point.x, point.y)
+                    center = Offset(point.x * size.width, point.y * size.height)
                 )
             }
         }

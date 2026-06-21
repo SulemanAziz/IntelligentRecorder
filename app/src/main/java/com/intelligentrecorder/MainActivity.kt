@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +31,8 @@ import com.intelligentrecorder.userInterface.MainScreen
 class MainActivity : ComponentActivity() {
     private var cameraPermissionGranted by mutableStateOf(false)
     private var currentScreen by mutableStateOf("main")
+    private val recorderViewModel: RecorderViewModel by viewModels()
+    private val mirrorViewModel: MirrorViewModel by viewModels()
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted: Boolean ->
@@ -51,9 +54,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             IntelligentRecorderTheme {
                 if (cameraPermissionGranted) {
-                    val recorderViewModel = RecorderViewModel()
-                    val mirrorViewModel = MirrorViewModel()
-                    
                     when (currentScreen) {
                         "main" -> MainScreen(
                             viewModel = recorderViewModel,

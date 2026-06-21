@@ -3,7 +3,6 @@ package com.intelligentrecorder
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
-import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -11,23 +10,21 @@ import android.media.MediaMuxer
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Toast
-import androidx.compose.material3.Snackbar
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.CoroutineScope
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 
 class RecorderViewModel : ViewModel() {
+
+    companion object {
+        private const val MAX_BUFFER_FRAMES = 3000 // ~100 seconds at 30fps
+        private const val MAX_FRAME_DIMENSION = 1280 // downscale larger frames to fit 720p
+    }
 
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
@@ -35,33 +32,46 @@ class RecorderViewModel : ViewModel() {
     private val _isMoving = MutableStateFlow(false)
     val isMoving: StateFlow<Boolean> = _isMoving.asStateFlow()
 
-    private val _threshold = MutableStateFlow(65f)
+    private val _isMirrorMoving = MutableStateFlow(false)
+    val isMirrorMoving: StateFlow<Boolean> = _isMirrorMoving.asStateFlow()
+
+    private val _isForegroundMoving = MutableStateFlow(false)
+    val isForegroundMoving: StateFlow<Boolean> = _isForegroundMoving.asStateFlow()
+
+    private val _threshold = MutableStateFlow(5f)
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
-    
+
+    private val _mirrorRegionThreshold = MutableStateFlow(8f)
+    val mirrorRegionThreshold: StateFlow<Float> = _mirrorRegionThreshold.asStateFlow()
+
     private val _currentMode = MutableStateFlow(DetectionMode.FOREGROUND)
     val currentMode: StateFlow<DetectionMode> = _currentMode.asStateFlow()
-    
+
     private val _mirrorPoints = MutableStateFlow<List<MirrorPoint>>(emptyList())
     val mirrorPoints: StateFlow<List<MirrorPoint>> = _mirrorPoints.asStateFlow()
-    
+
     private val videoBuffer = mutableListOf<Bitmap>()
+    private val bufferLock = Object()
     val bufferfilled = MutableStateFlow(false)
 
     private val _savedVideoUri = MutableStateFlow<String?>(null)
     val savedVideoUri: StateFlow<String?> = _savedVideoUri.asStateFlow()
 
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
+
     fun clearSavedUri() {
         _savedVideoUri.value = null
     }
-    
+
     fun setMode(mode: DetectionMode) {
         _currentMode.value = mode
     }
-    
+
     fun setMirrorPoints(points: List<MirrorPoint>) {
         _mirrorPoints.value = points
     }
-    
+
     fun startRecording(context: Context) {
         _isRecording.value = true
     }
@@ -74,22 +84,62 @@ class RecorderViewModel : ViewModel() {
         _threshold.value = value
     }
 
+    fun setMirrorRegionThreshold(value: Float) {
+        _mirrorRegionThreshold.value = value
+    }
+
     fun updateMotion(isMoving: Boolean) {
         _isMoving.value = isMoving
     }
 
-    fun addFrameToBuffer(image: Bitmap) {
-        if (_isRecording.value == true) {
-            videoBuffer.add(image)
+    fun updateMirrorMotion(isMoving: Boolean) {
+        _isMirrorMoving.value = isMoving
+    }
+
+    fun updateForegroundMotion(isMoving: Boolean) {
+        _isForegroundMoving.value = isMoving
+    }
+
+    private fun downscaleBitmap(bitmap: Bitmap): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= MAX_FRAME_DIMENSION && height <= MAX_FRAME_DIMENSION) {
+            return bitmap
         }
-        if(bufferfilled.value!=true){
-            bufferfilled.value = true;
+        val scale = MAX_FRAME_DIMENSION.toFloat() / maxOf(width, height)
+        val newWidth = (width * scale).toInt()
+        val newHeight = (height * scale).toInt()
+        val scaled = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+        if (scaled !== bitmap) {
+            bitmap.recycle()
+        }
+        return scaled
+    }
+
+    fun addFrameToBuffer(image: Bitmap) {
+        if (_isRecording.value) {
+            val scaled = downscaleBitmap(image)
+            synchronized(bufferLock) {
+                if (videoBuffer.size < MAX_BUFFER_FRAMES) {
+                    videoBuffer.add(scaled)
+                    if (!bufferfilled.value) {
+                        bufferfilled.value = true
+                    }
+                } else {
+                    scaled.recycle()
+                }
+            }
+        } else {
+            image.recycle()
         }
     }
 
     fun clearBuffer() {
-        videoBuffer.clear()
-        bufferfilled.value = false
+        synchronized(bufferLock) {
+            videoBuffer.forEach { it.recycle() }
+            videoBuffer.clear()
+            bufferfilled.value = false
+        }
     }
 
     fun convertFramesToVideo(
@@ -97,8 +147,8 @@ class RecorderViewModel : ViewModel() {
         outputPath: String,
         fps: Int = 30,
         bitrate: Int = 4_000_000
-    ){
-        if(framebuffer.isEmpty()) return
+    ) {
+        if (framebuffer.isEmpty()) return
 
         val width = framebuffer[0].width
         val height = framebuffer[0].height
@@ -118,7 +168,8 @@ class RecorderViewModel : ViewModel() {
         val muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         val bufferInfo = MediaCodec.BufferInfo()
         var trackIndex = -1
-        var presentationTimeUs = 0L
+        var muxerStarted = false
+        var currentFramePts = 0L
         val frameDurationUs = 1_000_000L / fps
 
         fun drainEncoder(endOfStream: Boolean) {
@@ -129,18 +180,18 @@ class RecorderViewModel : ViewModel() {
                     outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         trackIndex = muxer.addTrack(codec.outputFormat)
                         muxer.start()
+                        muxerStarted = true
                     }
                     outIndex >= 0 -> {
                         val encodedData = codec.getOutputBuffer(outIndex)!!
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                             bufferInfo.size = 0
                         }
-                        if (bufferInfo.size > 0) {
+                        if (bufferInfo.size > 0 && muxerStarted) {
                             encodedData.position(bufferInfo.offset)
                             encodedData.limit(bufferInfo.offset + bufferInfo.size)
-                            bufferInfo.presentationTimeUs = presentationTimeUs
+                            bufferInfo.presentationTimeUs = currentFramePts
                             muxer.writeSampleData(trackIndex, encodedData, bufferInfo)
-                            presentationTimeUs += frameDurationUs
                         }
                         codec.releaseOutputBuffer(outIndex, false)
                         if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
@@ -150,7 +201,8 @@ class RecorderViewModel : ViewModel() {
             }
         }
 
-        framebuffer.forEach { bitmap ->
+        framebuffer.forEachIndexed { index, bitmap ->
+            currentFramePts = index.toLong() * frameDurationUs
             val canvas = surface.lockCanvas(null)
             try {
                 canvas.drawBitmap(bitmap, 0f, 0f, null)
@@ -164,42 +216,70 @@ class RecorderViewModel : ViewModel() {
         codec.stop()
         codec.release()
         surface.release()
-        muxer.stop()
+        if (muxerStarted) {
+            muxer.stop()
+        }
         muxer.release()
 
-        Log.d("Video Encoder","Video Encoded!")
+        Log.d("Video Encoder", "Video Encoded!")
     }
 
-    fun saveVideo(context: Context): Boolean {
-        try {
-            CoroutineScope(Dispatchers.IO).launch {
+    fun saveVideo(context: Context) {
+        if (_isSaving.value) return
+        _isSaving.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val bufferSnapshot: List<Bitmap>
+                synchronized(bufferLock) {
+                    bufferSnapshot = videoBuffer.toList()
+                }
+
+                if (bufferSnapshot.isEmpty()) {
+                    _isSaving.value = false
+                    return@launch
+                }
+
                 val fileName = "IntelligentRecorder_${System.currentTimeMillis()}.mp4"
                 val tempFile = File(context.filesDir, fileName)
 
                 convertFramesToVideo(
-                    framebuffer = videoBuffer,
+                    framebuffer = bufferSnapshot,
                     outputPath = tempFile.absolutePath
                 )
 
                 val values = ContentValues().apply {
-                    put(MediaStore.Video.Media.DISPLAY_NAME, "output.mp4")
+                    put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
                     put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
                     put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES)
                 }
-                val uri = context.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-                context.contentResolver.openOutputStream(uri!!)?.use { outputStream ->
-                    tempFile.inputStream().copyTo(outputStream)
+                val uri = context.contentResolver.insert(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values
+                )
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        tempFile.inputStream().copyTo(outputStream)
+                    }
+                    _savedVideoUri.value = uri.toString()
+                } else {
+                    Log.e("RecorderViewModel", "Failed to create MediaStore entry")
                 }
 
                 tempFile.delete()
                 clearBuffer()
-                _savedVideoUri.value = uri.toString()
-
+            } catch (e: Exception) {
+                Log.e("RecorderViewModel", "Failed to save video", e)
+            } finally {
+                _isSaving.value = false
             }
-            return true
-        } catch (e: Exception) {
-            Log.e("RecorderViewModel", "Failed to save", e)
-            return false
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        synchronized(bufferLock) {
+            videoBuffer.forEach { it.recycle() }
+            videoBuffer.clear()
         }
     }
 }

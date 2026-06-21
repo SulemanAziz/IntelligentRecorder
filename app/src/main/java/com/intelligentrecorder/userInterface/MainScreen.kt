@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
@@ -273,23 +274,44 @@ fun MainScreen(
     val sound = remember { MediaActionSound() }
     val isRecording by viewModel.isRecording.collectAsState()
     val isMoving by viewModel.isMoving.collectAsState()
+    val isMirrorMoving by viewModel.isMirrorMoving.collectAsState()
+    val isForegroundMoving by viewModel.isForegroundMoving.collectAsState()
     val savedVideoUri by viewModel.savedVideoUri.collectAsState()
     val selectedMode by (mirrorViewModel?.selectedMode?.collectAsState() ?: remember { mutableStateOf(DetectionMode.FOREGROUND) })
     val mirrorPoints by (mirrorViewModel?.mirrorPoints?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     var showSettings by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     
-    // Get the appropriate threshold based on mode
-    val currentThreshold = when (selectedMode) {
+    // Get the appropriate thresholds based on mode
+    val currentForegroundThreshold = when (selectedMode) {
         DetectionMode.FOREGROUND -> mirrorViewModel?.foregroundThreshold?.collectAsState()?.value ?: viewModel.threshold.collectAsState().value
-        DetectionMode.MIRROR -> mirrorViewModel?.mirrorThreshold?.collectAsState()?.value ?: 65f
-        DetectionMode.HYBRID -> mirrorViewModel?.hybridForegroundThreshold?.collectAsState()?.value ?: 65f
+        DetectionMode.HYBRID -> mirrorViewModel?.hybridForegroundThreshold?.collectAsState()?.value ?: 5f
+        DetectionMode.MIRROR -> 5f
+    }
+    val currentMirrorThreshold = when (selectedMode) {
+        DetectionMode.MIRROR -> mirrorViewModel?.mirrorThreshold?.collectAsState()?.value ?: 8f
+        DetectionMode.HYBRID -> mirrorViewModel?.hybridMirrorThreshold?.collectAsState()?.value ?: 8f
+        DetectionMode.FOREGROUND -> 5f
     }
     
     // Sync RecorderViewModel with mode-specific settings
-    LaunchedEffect(selectedMode, currentThreshold, mirrorPoints) {
+    LaunchedEffect(selectedMode, currentForegroundThreshold, currentMirrorThreshold, mirrorPoints) {
         viewModel.setMode(selectedMode)
-        viewModel.setThreshold(currentThreshold)
+        
+        // Only update thresholds that are actually used in the current mode
+        when (selectedMode) {
+            DetectionMode.FOREGROUND -> {
+                viewModel.setThreshold(currentForegroundThreshold)
+            }
+            DetectionMode.MIRROR -> {
+                viewModel.setMirrorRegionThreshold(currentMirrorThreshold)
+            }
+            DetectionMode.HYBRID -> {
+                viewModel.setThreshold(currentForegroundThreshold)
+                viewModel.setMirrorRegionThreshold(currentMirrorThreshold)
+            }
+        }
+        
         viewModel.setMirrorPoints(mirrorPoints)
     }
 
@@ -314,22 +336,41 @@ fun MainScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp, start = 10.dp, end = 10.dp)
             ) {
-                // Motion indicator on the left
-                if(isMoving){
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "Motion Detected",
-                        modifier = Modifier.size(50.dp),
-                        tint = Color.Yellow
-                    )
-                }
-                else{
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "No Motion",
-                        modifier = Modifier.size(50.dp),
-                        tint = Color.DarkGray
-                    )
+                // Motion indicator(s) on the left
+                if (selectedMode == DetectionMode.HYBRID) {
+                    // Dual indicators: Mirror (Cyan) + Foreground (Magenta)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isMirrorMoving) Icons.Default.Warning else Icons.Default.Lock,
+                            contentDescription = if (isMirrorMoving) "Mirror Motion Detected" else "No Mirror Motion",
+                            modifier = Modifier.size(35.dp),
+                            tint = if (isMirrorMoving) Color.Cyan else Color.DarkGray
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (isForegroundMoving) Icons.Default.Warning else Icons.Default.Lock,
+                            contentDescription = if (isForegroundMoving) "Foreground Motion Detected" else "No Foreground Motion",
+                            modifier = Modifier.size(35.dp),
+                            tint = if (isForegroundMoving) Color.Magenta else Color.DarkGray
+                        )
+                    }
+                } else {
+                    // Single indicator for Foreground / Mirror modes
+                    if (isMoving) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Motion Detected",
+                            modifier = Modifier.size(50.dp),
+                            tint = Color.Yellow
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "No Motion",
+                            modifier = Modifier.size(50.dp),
+                            tint = Color.DarkGray
+                        )
+                    }
                 }
                 
                 // Mode dropdown in the middle
@@ -381,7 +422,7 @@ fun MainScreen(
             verticalArrangement = Arrangement.Bottom,
             horizontalAlignment = Alignment.End
         ) {
-             if(viewModel.bufferfilled.collectAsState().value == true && viewModel.isRecording.collectAsState().value == false) {
+             if(viewModel.bufferfilled.collectAsState().value == true && viewModel.isRecording.collectAsState().value == false && viewModel.isSaving.collectAsState().value == false) {
                  SaveButton(onClick = {
                      viewModel.saveVideo(context)
                  })
@@ -410,7 +451,7 @@ fun MainScreen(
         when (selectedMode) {
             DetectionMode.FOREGROUND -> {
                 SettingsModal(
-                    currentThreshold = mirrorViewModel?.foregroundThreshold?.collectAsState()?.value ?: currentThreshold,
+                    currentThreshold = mirrorViewModel?.foregroundThreshold?.collectAsState()?.value ?: currentForegroundThreshold,
                     onThresholdChange = { 
                         mirrorViewModel?.setForegroundThreshold(it)
                         viewModel.setThreshold(it)
@@ -420,19 +461,22 @@ fun MainScreen(
             }
             DetectionMode.MIRROR -> {
                 MirrorSettingsModal(
-                    currentThreshold = mirrorViewModel?.mirrorThreshold?.collectAsState()?.value ?: currentThreshold,
+                    currentThreshold = mirrorViewModel?.mirrorThreshold?.collectAsState()?.value ?: currentMirrorThreshold,
                     onThresholdChange = { 
                         mirrorViewModel?.setMirrorThreshold(it)
-                        viewModel.setThreshold(it)
+                        viewModel.setMirrorRegionThreshold(it)
                     },
                     onDismiss = { showSettings = false }
                 )
             }
             DetectionMode.HYBRID -> {
                 HybridSettingsModal(
-                    currentMirrorThreshold = mirrorViewModel?.hybridMirrorThreshold?.collectAsState()?.value ?: 65f,
-                    currentForegroundThreshold = mirrorViewModel?.hybridForegroundThreshold?.collectAsState()?.value ?: 65f,
-                    onMirrorThresholdChange = { mirrorViewModel?.setHybridMirrorThreshold(it) },
+                    currentMirrorThreshold = mirrorViewModel?.hybridMirrorThreshold?.collectAsState()?.value ?: 8f,
+                    currentForegroundThreshold = mirrorViewModel?.hybridForegroundThreshold?.collectAsState()?.value ?: 5f,
+                    onMirrorThresholdChange = { 
+                        mirrorViewModel?.setHybridMirrorThreshold(it)
+                        viewModel.setMirrorRegionThreshold(it)
+                    },
                     onForegroundThresholdChange = { 
                         mirrorViewModel?.setHybridForegroundThreshold(it)
                         viewModel.setThreshold(it)

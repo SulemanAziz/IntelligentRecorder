@@ -58,7 +58,7 @@ fun HybridSettingsModal(
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Adjust both mirror region and foreground motion detection thresholds.",
+                    text = "Adjust both mirror region and foreground motion detection thresholds. Lower = more sensitive.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
