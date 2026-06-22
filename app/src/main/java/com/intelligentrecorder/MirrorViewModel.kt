@@ -29,16 +29,16 @@ class MirrorViewModel : ViewModel() {
     val isConfigurationComplete: StateFlow<Boolean> = _isConfigurationComplete.asStateFlow()
     
     // Separate thresholds for each mode
-    private val _mirrorThreshold = MutableStateFlow(65f)
+    private val _mirrorThreshold = MutableStateFlow(8f)
     val mirrorThreshold: StateFlow<Float> = _mirrorThreshold.asStateFlow()
     
-    private val _foregroundThreshold = MutableStateFlow(65f)
+    private val _foregroundThreshold = MutableStateFlow(5f)
     val foregroundThreshold: StateFlow<Float> = _foregroundThreshold.asStateFlow()
     
-    private val _hybridMirrorThreshold = MutableStateFlow(65f)
+    private val _hybridMirrorThreshold = MutableStateFlow(8f)
     val hybridMirrorThreshold: StateFlow<Float> = _hybridMirrorThreshold.asStateFlow()
     
-    private val _hybridForegroundThreshold = MutableStateFlow(65f)
+    private val _hybridForegroundThreshold = MutableStateFlow(5f)
     val hybridForegroundThreshold: StateFlow<Float> = _hybridForegroundThreshold.asStateFlow()
     
     fun addPoint(x: Float, y: Float) {

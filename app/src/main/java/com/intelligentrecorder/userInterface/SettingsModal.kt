@@ -43,7 +43,7 @@ fun SettingsModal(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Pixels that must change between frames to trigger motion detection.",
+                    text = "Pixels that must change between frames to trigger motion detection. Lower = more sensitive.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
